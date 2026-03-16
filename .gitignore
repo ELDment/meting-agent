@@ -1,7 +1,8 @@
+dist/
 node_modules/
-lib/
-*.tgz
-.tmp/
-.inspect/
-.probe/
-npm-debug.log*
+
+mcp/.inspect/
+mcp/.probe/
+mcp/node_modules/
+mcp/src/meting/meting.js
+mcp/src/meting/providers/

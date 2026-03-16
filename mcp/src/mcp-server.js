@@ -1,7 +1,7 @@
 import { createRequire } from "module";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
-import Meting from "./meting.js";
+import Meting from "./meting/meting.js";
 
 const require = createRequire(import.meta.url);
 const { name: packageName, version } = require("../package.json");
@@ -9,9 +9,9 @@ const { name: packageName, version } = require("../package.json");
 const packageUrl = `https://www.npmjs.com/package/${packageName}`;
 
 export const serviceMetadata = Object.freeze({
-  name: "meting-mcp",
+  name: "meting-agent",
   version,
-  title: "Meting MCP",
+  title: "Meting Agent",
   description:
     "Search music and fetch song, album, artist, playlist, lyrics, cover, and play URL data across NetEase, Tencent, KuGou, Baidu, and Kuwo.",
   websiteUrl: packageUrl,
