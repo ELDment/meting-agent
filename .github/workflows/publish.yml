@@ -1,0 +1,159 @@
+name: Verify and release
+
+on:
+  push:
+    branches: [main, "feat/**", "fix/**", "refactor/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: "22.16.0" }
+          - { os: ubuntu-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
+          - { os: macos-latest, node: "24" }
+          - { os: ubuntu-latest, node: "26" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:package
+
+  build:
+    needs: verify
+    if: >-
+      github.repository == 'ELDment/meting-agent' &&
+      (github.ref == 'refs/heads/main' ||
+      startsWith(github.ref, 'refs/heads/feat/') ||
+      startsWith(github.ref, 'refs/heads/fix/') ||
+      startsWith(github.ref, 'refs/heads/refactor/')) &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Check for verified distributions from this run
+        id: previous
+        if: github.run_attempt != '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          found=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" \
+            --jq 'any(.artifacts[]; .name == "distributions" and (.expired | not))')
+          echo "found=$found" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-node@v6
+        if: steps.previous.outputs.found != 'true'
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Build and verify dated distributions
+        if: steps.previous.outputs.found != 'true'
+        run: |
+          npm ci
+          projectVersion=$(node -p "require('./package.json').version")
+          version=$(node scripts/ci/release.js prepare)
+          npm pkg set "projectVersion=$projectVersion"
+          npm version "$version" --no-git-tag-version --allow-same-version --ignore-scripts
+          npm run build
+          npm run test:package -- "$projectVersion"
+          echo "Prepared **$version** for npm and GitHub." >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: steps.previous.outputs.found != 'true'
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    concurrency:
+      group: meting-agent-release
+      queue: max
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Publish verified npm tarball
+        id: npm
+        shell: bash
+        run: |
+          archive=(./dist/*.tgz)
+          version=$(tar -xOzf "${archive[0]}" package/package.json | jq -er .version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          info=$(node scripts/ci/release.js publish-info "$version")
+          channel=$(jq -er .channel <<< "$info")
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          integrity=$(jq -r .integrity <<< "$info")
+          if [[ -n "$integrity" ]]; then
+            test "$integrity" = "sha512-$(openssl dgst -sha512 -binary "${archive[0]}" | openssl base64 -A)"
+          else
+            npm publish "${archive[0]}" --access public --provenance --tag "$channel"
+          fi
+      - name: Release standalone skill
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ steps.npm.outputs.version }}
+          RELEASE_CHANNEL: ${{ steps.npm.outputs.channel }}
+        shell: bash
+        run: |
+          tag="$RELEASE_VERSION"
+          asset="dist/meting-agent-skill-$tag.zip"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            if ! gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$(basename "$asset")"; then
+              gh release upload "$tag" "$asset"
+            fi
+          else
+            gh release create "$tag" --draft --target "$GITHUB_SHA" --title "$tag" --generate-notes "$asset"
+          fi
+          remoteAsset="$RUNNER_TEMP/release-skill.zip"
+          gh release download "$tag" --pattern "$(basename "$asset")" --output "$remoteAsset" --clobber
+          if ! cmp --silent "$asset" "$remoteAsset"; then
+            echo "The release asset differs from the verified Skill ZIP." >&2
+            exit 1
+          fi
+          isDraft=$(gh release view "$tag" --json isDraft --jq .isDraft)
+          if [[ "$isDraft" == true ]]; then
+            case "$RELEASE_CHANNEL" in
+              latest) flag=--latest ;;
+              backfill) flag=--latest=false ;;
+              prerelease|prerelease-backfill) flag=--prerelease ;;
+            esac
+            gh release edit "$tag" --draft=false "$flag"
+          fi

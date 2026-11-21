@@ -1,19 +1,45 @@
 {
-  "name": "meting-agent-repo",
-  "private": true,
+  "name": "@eldment/meting-agent",
+  "version": "2.0.0",
+  "description": "Music lookup for MCP clients and agents across NetEase, Tencent, KuGou and Kuwo.",
+  "license": "MIT",
+  "author": "ELDment",
+  "repository": "github:ELDment/meting-agent",
   "type": "module",
+  "exports": "./src/server.js",
+  "bin": {
+    "meting-agent": "./src/index.js"
+  },
+  "files": [
+    "src",
+    "skills/meting-agent/scripts",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.16.0"
+  },
   "scripts": {
-    "check:mcp": "node scripts/sync-generated.mjs check mcp",
-    "check:skill": "node scripts/sync-generated.mjs check skill",
-    "check:all": "node scripts/sync-generated.mjs check all",
-    "sync:mcp": "node scripts/sync-generated.mjs sync mcp",
-    "sync:skill": "node scripts/sync-generated.mjs sync skill",
-    "sync:all": "node scripts/sync-generated.mjs sync all",
-    "build:skill": "npm run sync:skill",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "start": "node src/index.js",
+    "format": "eslint . --fix && prettier . --write",
+    "check": "eslint . --max-warnings=0 && prettier . --check",
+    "test": "node --test",
+    "build": "node scripts/ci/build.js",
+    "test:package": "node scripts/ci/verify.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "prettier": "^3.6.2"
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.15.0",
+    "fflate": "^0.8.3",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "semver": "^7.7.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,4 +1,4 @@
 interface:
   display_name: "Meting Agent"
-  short_description: "Use bundled Meting scripts for direct music lookup tasks."
-  default_prompt: "Use $meting-agent to query music data through the bundled scripts in this skill."
+  short_description: "Find music, lyrics and covers across four music platforms."
+  default_prompt: "Use $meting-agent to search NetEase for 我怀念的 and show the top three tracks."
